@@ -1,0 +1,177 @@
+platform: databricks
+environment: dev
+catalog_name: mlops
+database: test
+package_name: mlops_databricks_test
+package_version: 0.1
+audit_control_stores:
+  - name: "loan_approval_audit_control_store"
+    type: "delta"
+    configs:
+      audit_table: "lakehouse_dev.delta.mlops_audit"
+entry_points:
+  - staging_bronze_loan_approval:
+      type: source-sink
+      audit_control_store_name: loan_approval_audit_control_store
+      input_parameters:
+        - name: 'parameter1'
+          type: str
+          required: True
+          help: "parameter 1 test"
+          value: "value1"
+      env_variables:
+        - env1: value1
+      spark_configs:
+        spark.master: local[*]
+        spark.jars.packages: "io.delta:delta-core_2.12:2.0.0,org.apache.hadoop:hadoop-aws:3.2.1,org.apache.spark:spark-hadoop-cloud_2.13:3.2.1"
+        spark.sql.catalog.spark_catalog: org.apache.spark.sql.delta.catalog.DeltaCatalog
+        spark.driver.memory: 4g
+        spark.executor.memory: 4g
+      data_sources:
+        - source_name: "staging_bronze_loan_approval_source"
+          ingestion_type: incremental
+          dataframe_type: spark
+          format: csv
+          path: "s3a://prudhvi-08052024-test/staging/loan_approval/loan_approval_dataset.csv"
+          tmp_view_name: "tmp1"
+          dataframe_options:
+            inferSchema: true
+            header: true
+      transformations:
+        entry_point_function_path: staging_bronze_loan_approval.function.main
+        sql_transformation_configs:
+          - transformation_name: "sql_transformation"
+            execution_type: "pre_function"
+            sql_query_path: "file://C:/MLops/sql1.sql"
+            sql_variables:
+              - var1: "abc"
+              - var2: "$paramater_parameter1"
+              - var3: "$env_env1"
+            additional_columns:
+              - col1_name: hash_cols
+                exclude_col: salary|gender
+              - col2_name: "lit('abc')"
+      data_sinks:
+        - sink_name: "bronze_loan_approval_delta_sink"
+          dataframe_type: spark
+          type: spark_sink
+          format: delta
+          path: "s3a://prudhvi-08052024-test/bronze/loan_approval"
+          partitionBy:
+            - education
+          dataframe_options:
+            optimizeWrite: true
+            autoCompact: true
+            dataChange: true
+  - bronze_silver_dq_loan_approval:
+      audit_control_store_name: loan_approval_audit_control_store
+      type: source-sink
+      data_sources:
+        - source_name: bronze_loan_approval_source
+          dataframe_type: spark
+          format: delta
+          path: "s3a://prudhvi-08052024-test/bronze/loan_approval"
+      transformations:
+        entry_point_function_path: bronze_silver_sql_loan_approval.function.main
+      dq_specs:
+        - dq_name: "silver_loan_processing_dq_checks"
+          dq_type: "validator"
+          store_backend: "s3"
+          bucket: "prudhvi-08052024-test"
+          data_docs_bucket: "prudhvi-08052024-test"
+          validations_store_prefix: "dq/loan_approval/validations"
+          checkpoint_store_prefix: "dq/loan_approval/checkpoint"
+          expectations_store_prefix: "dq/loan_approval/expectations_store"
+          data_docs_prefix: "dq/loan_approval/data_docs"
+          result_sink_db_table: "test.loan_processing_dq_spec"
+          result_sink_location: "s3a://prudhvi-08052024-test/dq/loan_approval/results"
+          fail_on_error: False
+          result_sink_explode: True
+          tag_source_data: True
+          gx_result_format: COMPLETE
+          unexpected_rows_pk:
+            - "loan_id"
+          dq_functions:
+           - function: "expect_column_values_to_be_in_set"
+             args:
+              column: education
+              value_set:
+                - "Graduate"
+                - "Not Graduate"
+      data_sinks:
+        - sink_name: "silver_write_dq_checks_delta"
+          input_id: "silver_loan_processing_dq_checks"
+          dataframe_type: spark
+          type: spark_sink
+          format: delta
+          path: "s3a://prudhvi-08052024-test/silver/intermediate/loan_approval"
+          partitionBy:
+            - education
+          dataframe_options:
+            optimizeWrite: true
+            autoCompact: true
+            dataChange: true
+  - silver_loan_approval:
+      audit_control_store_name: loan_approval_audit_control_store
+      type: source-sink
+      depends_on: bronze_silver_dq_loan_approval
+      data_sources:
+        - source_name: "intermediate_silver_loan_approval_source"
+          dataframe_type: spark
+          format: delta
+          path: "s3a://prudhvi-08052024-test/silver/intermediate/loan_approval"
+      transformations:
+        entry_point_function_path: silver_loan_approval.function.main
+      data_sinks:
+        - sink_name: "write_silver_loan_approval_bad_records"
+          dataframe_type: spark
+          type: spark_sink
+          format: delta
+          path: "s3a://prudhvi-08052024-test/silver/bad_records/loan_approval"
+          partitionBy:
+            - education
+          dataframe_options:
+            optimizeWrite: true
+            autoCompact: true
+            dataChange: true
+        - sink_name: "write_silver_loan_approval_good_records"
+          dataframe_type: spark
+          type: spark_sink
+          format: delta
+          path: "s3a://prudhvi-08052024-test/silver/loan_approval"
+          partitionBy:
+            - education
+          dataframe_options:
+            optimizeWrite: true
+            autoCompact: true
+            dataChange: true
+jobs:
+    access_control_list:
+      group_name:
+        can_view: users
+        can_manage: leads
+        can_manage_run:
+          - leads
+    email_notifications:
+      on_start:
+        - prudhvi_akella@epam.com
+      on_failure:
+        - prudhvi_akella@epam.com
+      on_success:
+        - prudhvi_akella@epam.com
+    max_concurrent_runs: 1
+    cluster:
+      spark_version: 13.3.x-scala2.12
+      aws:
+        instance_profile_arn: arn:aws:iam::022499040599:instance-profile/s3-databricks-instance-profile
+        zone_id: auto
+      data_security_mode: USER_ISOLATION
+    libraries:
+      - pypi:
+          package: Jinja2==3.1.3
+      - pypi:
+          package: pyyaml==6.0
+      - pypi:
+          package: pytest==7.2.1
+      - whl: s3://prudhvi-08052024-test/artefacts/mlops_databricks_test-0.1-py3-none-any.whl
+      - whl: s3://prudhvi-08052024-test/artefacts/OpsEngine-0.1-py3-none-any.whl

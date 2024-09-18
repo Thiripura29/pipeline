@@ -1,0 +1,5 @@
+[console_scripts]
+bronze_silver_dq_loan_approval = mlops_databricks_test.entry_points.bronze_silver_dq_loan_approval.entry_point_bronze_silver_dq_loan_approval:main
+silver_loan_approval = mlops_databricks_test.entry_points.silver_loan_approval.entry_point_silver_loan_approval:main
+staging_bronze_loan_approval = mlops_databricks_test.entry_points.staging_bronze_loan_approval.entry_point_staging_bronze_loan_approval:main
+

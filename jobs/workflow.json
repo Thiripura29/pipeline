@@ -1,0 +1,88 @@
+{
+    "access_control_list": [
+        {
+            "group_name": "{{ jobs.access_control_list.group_name.can_view }}",
+            "permission_level": "CAN_VIEW"
+        },
+        {
+            "group_name": "{{ jobs.access_control_list.group_name.can_manage }}",
+            "permission_level": "CAN_MANAGE"
+        },
+        {% for group_name in jobs.access_control_list.group_name.can_manage_run %}
+        {
+            "group_name": "{{ group_name }}",
+            "permission_level": "CAN_MANAGE_RUN"
+        }{{ ", " if not loop.last else "" }}
+        {% endfor %}
+    ],
+    "name": "test",
+    "email_notifications": {{ jobs.email_notifications | tojson(indent=4) | indent(4, False) }},
+    "timeout_seconds": 0,
+    "max_concurrent_runs": "{{ jobs.max_concurrent_runs }}",
+    "schedule": {
+        "quartz_cron_expression": "0 0 11 * * ?",
+        "timezone_id": "UTC",
+        {% if environment == "prod" %}
+        "pause_status": "UNPAUSED"
+        {% else %}
+        "pause_status": "PAUSED"
+        {% endif %}
+    },
+    "tasks": [
+
+        {
+            "task_key": "staging_bronze_loan_approval",
+            "python_wheel_task": {
+                "package_name": "mlops_databricks_test",
+                "entry_point": "staging_bronze_loan_approval"
+            },
+            "libraries": {{ jobs.libraries| tojson(indent=4) | indent(4, False) }},
+            "job_cluster_key": "load_cluster"
+        },
+        {
+            "task_key": "bronze_silver_dq_loan_approval",
+            "python_wheel_task": {
+                "package_name": "mlops_databricks_test",
+                "entry_point": "bronze_silver_dq_loan_approval"
+            },
+            "libraries": {{ jobs.libraries| tojson(indent=4) | indent(4, False) }},
+            "job_cluster_key": "load_cluster",
+            "depends_on": [{"task_key": "staging_bronze_loan_approval"}]
+        },
+        {
+            "task_key": "silver_loan_approval",
+            "python_wheel_task": {
+                "package_name": "mlops_databricks_test",
+                "entry_point": "silver_loan_approval"
+            },
+            "libraries": {{ jobs.libraries| tojson(indent=4) | indent(4, False) }},
+            "job_cluster_key": "load_cluster",
+            "depends_on": [{"task_key": "bronze_silver_dq_loan_approval"}]
+        }
+    ],
+    "job_clusters": [
+        {
+            "job_cluster_key": "load_cluster",
+            "new_cluster": {
+                "spark_version": "{{ jobs.cluster.spark_version }}",
+                "aws_attributes": {
+                    "zone_id": "{{ jobs.cluster.aws.zone_id | random }}",
+                    "first_on_demand": 1,
+                    "availability": "SPOT_WITH_FALLBACK",
+                    "instance_profile_arn": "{{ jobs.cluster.aws.instance_profile_arn }}"
+                },
+                "node_type_id": "i3.xlarge",
+                "driver_node_type_id": "i3.xlarge",
+                "data_security_mode": "{{ jobs.cluster.data_security_mode }}",
+                "spark_env_vars": {
+                    "PYSPARK_PYTHON": "/databricks/python3/bin/python3"
+                },
+                "autoscale": {
+                    "min_workers": 2,
+                    "max_workers": 3
+                }
+            }
+        }
+    ],
+    "format": "MULTI_TASK"
+}

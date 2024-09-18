@@ -1,0 +1,61 @@
+{
+    "access_control_list": [
+        {
+            "group_name": "{{ jobs.access_control_list.group_name.can_view }}",
+            "permission_level": "CAN_VIEW"
+        },
+        {
+            "group_name": "{{ jobs.access_control_list.group_name.can_manage }}",
+            "permission_level": "CAN_MANAGE"
+        },
+        {% for group_name in jobs.access_control_list.group_name.can_manage_run %}
+        {
+            "group_name": "{{ group_name }}",
+            "permission_level": "CAN_MANAGE_RUN"
+        }{{ ", " if not loop.last else "" }}
+        {% endfor %}
+    ],
+    "name": "deploy_sql_assets",
+    "email_notifications": {{ jobs.email_notifications | tojson(indent=4) | indent(4, False) }},
+    "tasks": [
+
+        {
+            "task_key": "deploy_sql_assets",
+            "python_wheel_task": {
+				"package_name": "mlops_test",
+				"entry_point": "entry_points.ops.db_table_manager.main",
+				"parameters": ["--sql_assets_paths", "{{ jobs.sql_assets_paths }}"]
+			},
+            "libraries": {{ jobs.libraries| tojson(indent=4) | indent(4, False) }},
+            "job_cluster_key": "deploy_sql_assets_cluster"
+        }
+    ],
+    "job_clusters": [
+        {
+            "job_cluster_key": "deploy_sql_assets_cluster",
+            "new_cluster": {
+                "spark_version": "{{ jobs.cluster.spark_version }}",
+                "aws_attributes": {
+                    "zone_id": "{{ jobs.cluster.aws.zone_id | random }}",
+                    "first_on_demand": 1,
+                    "availability": "SPOT_WITH_FALLBACK"
+                },
+                "node_type_id": "m5d.xlarge",
+                "driver_node_type_id": "m5d.xlarge",
+                "custom_tags": {
+                    "accountName": "{{ data_product }}",
+                    "environment": "{{ environment }}"
+                },
+                "data_security_mode": "{{ jobs.cluster.data_security_mode }}",
+                "spark_env_vars": {
+                    "PYSPARK_PYTHON": "/databricks/python3/bin/python3"
+                },
+                "autoscale": {
+                    "min_workers": 2,
+                    "max_workers": 3
+                }
+            }
+        }
+    ],
+    "format": "MULTI_TASK"
+}
